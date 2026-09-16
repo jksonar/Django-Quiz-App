@@ -10,10 +10,17 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Reads BASE_DIR/.env if present (see .env.example). Real values never get
+# committed - .env is gitignored.
+load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -134,10 +141,25 @@ LOGOUT_REDIRECT_URL = 'quizzes:catalog'
 
 # Email
 # https://docs.djangoproject.com/en/5.2/topics/email/#topic-email-configuration
+#
+# Falls back to printing emails to the console when EMAIL_HOST_USER isn't set,
+# so the app keeps working out of the box with no configuration. To send real
+# email, copy .env.example to .env and fill in real SMTP credentials there.
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'quizapp@example.com'
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+
+if EMAIL_HOST_USER:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+    EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False') == 'True'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'quizapp@example.com')
 
 # Base URL used to build absolute links in emails sent outside a request
 # context (e.g. the send_quiz_reminders management command).
-SITE_URL = 'http://localhost:8000'
+SITE_URL = os.environ.get('SITE_URL', 'http://localhost:8000')
