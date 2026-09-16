@@ -1,14 +1,18 @@
+import csv
 import random
 from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.db.models import Avg, Count, Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import DetailView, ListView
+from django.views.generic import DetailView, FormView, ListView
 
+from .forms import QuestionImportForm
+from .imports import commit_questions, parse_questions_csv
 from .models import Attempt, AttemptAnswer, Category, Choice, Question, Quiz
 
 
@@ -202,4 +206,138 @@ class HistoryView(LoginRequiredMixin, ListView):
             context['average_score'] = round(sum(a.score_percent or 0 for a in attempts) / len(attempts), 2)
         else:
             context['average_score'] = None
+
+        trend = list(reversed(attempts))
+        context['trend_labels'] = [a.start_time.strftime('%b %d') for a in trend]
+        context['trend_scores'] = [a.score_percent for a in trend]
+
+        weak_areas = (
+            self.get_queryset()
+            .values('quiz__category__name')
+            .annotate(avg_score=Avg('score_percent'), attempt_count=Count('id'))
+            .order_by('avg_score')
+        )
+        context['weak_areas'] = list(weak_areas)
         return context
+
+
+class InstructorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.is_authenticated and self.request.user.is_instructor
+
+
+class ManageDashboardView(InstructorRequiredMixin, ListView):
+    model = Quiz
+    template_name = 'quizzes/manage/dashboard.html'
+    context_object_name = 'quizzes'
+
+    def get_queryset(self):
+        return Quiz.objects.select_related('category').annotate(
+            attempt_count=Count('attempts'),
+            finished_count=Count('attempts', filter=Q(attempts__status__in=[
+                Attempt.Status.COMPLETED, Attempt.Status.TIMED_OUT,
+            ])),
+            avg_score=Avg('attempts__score_percent'),
+        )
+
+
+class QuizAnalyticsView(InstructorRequiredMixin, DetailView):
+    model = Quiz
+    template_name = 'quizzes/manage/quiz_analytics.html'
+    context_object_name = 'quiz'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        quiz = self.object
+        all_attempts = quiz.attempts.all()
+        finished = all_attempts.filter(status__in=[Attempt.Status.COMPLETED, Attempt.Status.TIMED_OUT])
+
+        started_count = all_attempts.count()
+        finished_count = finished.count()
+        context['started_count'] = started_count
+        context['finished_count'] = finished_count
+        context['completion_rate'] = round(finished_count / started_count * 100, 1) if started_count else None
+        context['average_score'] = round(
+            finished.aggregate(avg=Avg('score_percent'))['avg'] or 0, 2
+        ) if finished_count else None
+        context['pass_count'] = finished.filter(score_percent__gte=quiz.pass_score_percent).count()
+
+        question_stats = []
+        for question in quiz.questions.all():
+            answers = AttemptAnswer.objects.filter(attempt__in=finished, question=question)
+            answered_count = answers.count()
+            missed_count = answers.filter(is_correct=False).count()
+            miss_rate = round(missed_count / answered_count * 100, 1) if answered_count else 0
+            question_stats.append({
+                'question': question,
+                'answered_count': answered_count,
+                'missed_count': missed_count,
+                'miss_rate': miss_rate,
+            })
+        question_stats.sort(key=lambda s: s['miss_rate'], reverse=True)
+        context['question_stats'] = question_stats
+        return context
+
+
+@login_required
+def export_quiz_csv(request, pk):
+    quiz = get_object_or_404(Quiz, pk=pk)
+    if not request.user.is_instructor:
+        messages.error(request, 'You do not have permission to export this data.')
+        return redirect('quizzes:catalog')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{quiz.title}-results.csv"'
+    writer = csv.writer(response)
+    writer.writerow(['username', 'email', 'score_percent', 'correct_count', 'total_questions', 'status', 'start_time', 'end_time'])
+    for attempt in quiz.attempts.select_related('user').all():
+        writer.writerow([
+            attempt.user.username,
+            attempt.user.email,
+            attempt.score_percent,
+            attempt.correct_count,
+            len(attempt.question_order),
+            attempt.status,
+            attempt.start_time.isoformat(),
+            attempt.end_time.isoformat() if attempt.end_time else '',
+        ])
+    return response
+
+
+class QuestionImportView(InstructorRequiredMixin, FormView):
+    template_name = 'quizzes/manage/import_questions.html'
+    form_class = QuestionImportForm
+
+    def get_success_url(self):
+        return self.request.path
+
+    def form_valid(self, form):
+        rows, errors = parse_questions_csv(form.cleaned_data['csv_file'])
+        if errors:
+            return self.render_to_response(self.get_context_data(form=form, errors=errors))
+        created = commit_questions(rows, created_by=self.request.user)
+        messages.success(self.request, f'Imported {len(created)} question(s) successfully.')
+        return redirect('quizzes:import_questions')
+
+
+@login_required
+def download_import_template(request):
+    if not request.user.is_instructor:
+        messages.error(request, 'You do not have permission to do that.')
+        return redirect('quizzes:catalog')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="question_import_template.csv"'
+    writer = csv.writer(response)
+    writer.writerow(['category', 'question_text', 'question_type', 'difficulty', 'explanation', 'choices', 'correct_answers'])
+    writer.writerow([
+        'General Science', 'What is the boiling point of water at sea level (Celsius)?',
+        'single', 'easy', 'Water boils at 100C at standard atmospheric pressure.',
+        '100|90|80|120', '100',
+    ])
+    writer.writerow([
+        'General Science', 'Which of these are noble gases?',
+        'multi', 'medium', 'Noble gases include helium, neon, and argon.',
+        'Helium|Neon|Nitrogen|Oxygen', 'Helium|Neon',
+    ])
+    return response

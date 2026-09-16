@@ -1,0 +1,107 @@
+{% extends 'base.html' %}
+{% block title %}{{ quiz.title }} - Analytics{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="mb-0">{{ quiz.title }}</h1>
+    <div>
+        <a href="{% url 'quizzes:export_quiz_csv' quiz.pk %}" class="btn btn-outline-secondary">Export CSV</a>
+        <a href="{% url 'quizzes:manage_dashboard' %}" class="btn btn-outline-secondary">Back</a>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-center"><div class="card-body">
+            <h6 class="text-muted">Started</h6>
+            <p class="fs-3 mb-0">{{ started_count }}</p>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center"><div class="card-body">
+            <h6 class="text-muted">Completion Rate</h6>
+            <p class="fs-3 mb-0">{% if completion_rate is not None %}{{ completion_rate }}%{% else %}&mdash;{% endif %}</p>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center"><div class="card-body">
+            <h6 class="text-muted">Average Score</h6>
+            <p class="fs-3 mb-0">{% if average_score is not None %}{{ average_score }}%{% else %}&mdash;{% endif %}</p>
+        </div></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center"><div class="card-body">
+            <h6 class="text-muted">Passed</h6>
+            <p class="fs-3 mb-0">{{ pass_count }} / {{ finished_count }}</p>
+        </div></div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h6 class="card-title text-muted">Most-Missed Questions</h6>
+        <canvas id="missedChart" height="140" role="img" aria-label="Bar chart of percent incorrect per question"></canvas>
+    </div>
+</div>
+
+<table class="table table-bordered bg-white">
+    <thead>
+        <tr>
+            <th>Question</th>
+            <th>Answered</th>
+            <th>Missed</th>
+            <th>Miss Rate</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stat in question_stats %}
+        <tr>
+            <td>{{ stat.question.text|truncatewords:15 }}</td>
+            <td>{{ stat.answered_count }}</td>
+            <td>{{ stat.missed_count }}</td>
+            <td>{{ stat.miss_rate }}%</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="text-center text-muted">No attempts yet.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% endblock %}
+
+{% block extra_scripts %}
+{% if question_stats %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    const seriesBlue = '#2a78d6';
+    const gridColor = '#e1e0d9';
+    const mutedText = '#898781';
+    const missRates = [{% for stat in question_stats %}{{ stat.miss_rate }}{% if not forloop.last %}, {% endif %}{% endfor %}];
+    const questionLabels = [
+        {% for stat in question_stats %}"{{ stat.question.text|truncatewords:6|escapejs }}"{% if not forloop.last %},{% endif %}{% endfor %}
+    ];
+
+    new Chart(document.getElementById('missedChart'), {
+        type: 'bar',
+        data: {
+            labels: questionLabels,
+            datasets: [{
+                label: '% Incorrect',
+                data: missRates,
+                backgroundColor: seriesBlue,
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { beginAtZero: true, max: 100, grid: { color: gridColor }, ticks: { color: mutedText } },
+                y: { grid: { display: false }, ticks: { color: mutedText } },
+            },
+        },
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

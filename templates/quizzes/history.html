@@ -22,6 +22,39 @@
     </div>
 </div>
 
+{% if attempts %}
+<div class="row mb-4">
+    <div class="col-md-7 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h6 class="card-title text-muted">Score Trend</h6>
+                <canvas id="trendChart" height="180" role="img" aria-label="Line chart of quiz scores over time"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-5 mb-3">
+        <div class="card h-100">
+            <div class="card-body">
+                <h6 class="card-title text-muted">Weak Areas by Category</h6>
+                <canvas id="weakAreasChart" height="180" role="img" aria-label="Bar chart of average score by category"></canvas>
+                <table class="table table-sm mt-2 mb-0">
+                    <thead><tr><th>Category</th><th>Avg Score</th><th>Attempts</th></tr></thead>
+                    <tbody>
+                        {% for area in weak_areas %}
+                        <tr>
+                            <td>{{ area.quiz__category__name }}</td>
+                            <td>{{ area.avg_score|floatformat:1 }}%</td>
+                            <td>{{ area.attempt_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <table class="table table-bordered bg-white">
     <thead>
         <tr>
@@ -54,4 +87,70 @@
         {% endfor %}
     </tbody>
 </table>
+
+{{ trend_labels|json_script:"trend-labels" }}
+{{ trend_scores|json_script:"trend-scores" }}
+{{ weak_areas|json_script:"weak-areas" }}
+{% endblock %}
+
+{% block extra_scripts %}
+{% if attempts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    const seriesBlue = '#2a78d6';
+    const gridColor = '#e1e0d9';
+    const mutedText = '#898781';
+
+    const trendLabels = JSON.parse(document.getElementById('trend-labels').textContent);
+    const trendScores = JSON.parse(document.getElementById('trend-scores').textContent);
+
+    new Chart(document.getElementById('trendChart'), {
+        type: 'line',
+        data: {
+            labels: trendLabels,
+            datasets: [{
+                label: 'Score %',
+                data: trendScores,
+                borderColor: seriesBlue,
+                backgroundColor: seriesBlue,
+                borderWidth: 2,
+                pointRadius: 4,
+                pointBackgroundColor: seriesBlue,
+                tension: 0.2,
+            }],
+        },
+        options: {
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, max: 100, grid: { color: gridColor }, ticks: { color: mutedText } },
+                x: { grid: { display: false }, ticks: { color: mutedText } },
+            },
+        },
+    });
+
+    const weakAreas = JSON.parse(document.getElementById('weak-areas').textContent);
+    new Chart(document.getElementById('weakAreasChart'), {
+        type: 'bar',
+        data: {
+            labels: weakAreas.map(a => a.quiz__category__name),
+            datasets: [{
+                label: 'Avg Score %',
+                data: weakAreas.map(a => a.avg_score),
+                backgroundColor: seriesBlue,
+                borderRadius: 4,
+            }],
+        },
+        options: {
+            indexAxis: 'y',
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { beginAtZero: true, max: 100, grid: { color: gridColor }, ticks: { color: mutedText } },
+                y: { grid: { display: false }, ticks: { color: mutedText } },
+            },
+        },
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

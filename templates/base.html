@@ -20,6 +20,9 @@
                 {% if user.is_authenticated %}
                 <li class="nav-item"><a class="nav-link" href="{% url 'quizzes:history' %}">My Dashboard</a></li>
                 {% endif %}
+                {% if user.is_instructor %}
+                <li class="nav-item"><a class="nav-link" href="{% url 'quizzes:manage_dashboard' %}">Analytics</a></li>
+                {% endif %}
                 {% if user.is_staff %}
                 <li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Manage Content</a></li>
                 {% endif %}
