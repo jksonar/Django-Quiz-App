@@ -120,6 +120,9 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'accounts.User'
@@ -133,3 +136,8 @@ LOGOUT_REDIRECT_URL = 'quizzes:catalog'
 # https://docs.djangoproject.com/en/5.2/topics/email/#topic-email-configuration
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'quizapp@example.com'
+
+# Base URL used to build absolute links in emails sent outside a request
+# context (e.g. the send_quiz_reminders management command).
+SITE_URL = 'http://localhost:8000'

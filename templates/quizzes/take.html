@@ -6,49 +6,57 @@
     .question-panel.active { display: block; }
     .qnav-btn.answered { background-color: #198754; color: #fff; border-color: #198754; }
     .qnav-btn.review { background-color: #ffc107; border-color: #ffc107; }
+    .qnav-btn[aria-current="step"] { outline: 3px solid #2a78d6; outline-offset: 1px; }
     #timer.text-danger { font-weight: bold; }
+    .question-image { max-width: 100%; height: auto; margin-bottom: 1rem; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center bg-white p-3 rounded shadow-sm mb-3 sticky-top">
     <div>
         <strong>{{ quiz.title }}</strong>
-        <div class="text-muted" id="progress-indicator">Question 1 of {{ questions|length }}</div>
+        <div class="text-muted" id="progress-indicator" aria-live="polite">Question 1 of {{ questions|length }}</div>
     </div>
     <div class="text-end">
-        <div>Time remaining</div>
-        <div id="timer" class="fs-4">--:--</div>
+        <div id="timer-label">Time remaining</div>
+        <div id="timer" class="fs-4" aria-hidden="true">--:--</div>
+        <div id="timer-announcer" class="visually-hidden" role="status" aria-live="polite"></div>
     </div>
 </div>
 
 <form method="post" id="quiz-form" action="{% url 'quizzes:take' attempt.pk %}">
     {% csrf_token %}
 
-    <div class="mb-3 d-flex flex-wrap gap-1" id="question-nav">
+    <div class="mb-3 d-flex flex-wrap gap-1" id="question-nav" role="group" aria-label="Jump to question">
         {% for question in questions %}
-        <button type="button" class="btn btn-outline-secondary btn-sm qnav-btn" data-index="{{ forloop.counter0 }}">{{ forloop.counter }}</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm qnav-btn" data-index="{{ forloop.counter0 }}" aria-label="Go to question {{ forloop.counter }}">{{ forloop.counter }}</button>
         {% endfor %}
     </div>
 
     {% for question in questions %}
     <div class="question-panel card mb-3 {% if forloop.first %}active{% endif %}" data-index="{{ forloop.counter0 }}">
         <div class="card-body">
-            <h5 class="card-title">Question {{ forloop.counter }}. {{ question.text }}</h5>
-            <p class="text-muted small">{{ question.get_question_type_display }}</p>
-            {% for choice in question.display_choices %}
-            <div class="form-check">
-                {% if question.question_type == 'multi' %}
-                <input class="form-check-input answer-input" type="checkbox" name="question_{{ question.id }}" value="{{ choice.id }}" id="choice-{{ choice.id }}">
-                {% else %}
-                <input class="form-check-input answer-input" type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" id="choice-{{ choice.id }}">
+            <fieldset>
+                <legend class="h5" tabindex="-1">Question {{ forloop.counter }}. {{ question.text }}</legend>
+                <p class="text-muted small">{{ question.get_question_type_display }}</p>
+                {% if question.image %}
+                <img src="{{ question.image.url }}" alt="{{ question.image_alt_text|default:question.text }}" class="question-image">
                 {% endif %}
-                <label class="form-check-label" for="choice-{{ choice.id }}">{{ choice.text }}</label>
-            </div>
-            {% endfor %}
+                {% for choice in question.display_choices %}
+                <div class="form-check">
+                    {% if question.question_type == 'multi' %}
+                    <input class="form-check-input answer-input" type="checkbox" name="question_{{ question.id }}" value="{{ choice.id }}" id="choice-{{ choice.id }}">
+                    {% else %}
+                    <input class="form-check-input answer-input" type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" id="choice-{{ choice.id }}">
+                    {% endif %}
+                    <label class="form-check-label" for="choice-{{ choice.id }}">{{ choice.text }}</label>
+                </div>
+                {% endfor %}
+            </fieldset>
 
             <div class="mt-3 d-flex justify-content-between">
                 <button type="button" class="btn btn-outline-secondary btn-prev">Previous</button>
-                <button type="button" class="btn btn-outline-warning btn-mark-review">Mark for review</button>
+                <button type="button" class="btn btn-outline-warning btn-mark-review" aria-pressed="false">Mark for review</button>
                 <button type="button" class="btn btn-outline-secondary btn-next">Next</button>
             </div>
         </div>
@@ -74,8 +82,17 @@
 
     function showPanel(index) {
         panels.forEach(p => p.classList.toggle('active', Number(p.dataset.index) === index));
+        navButtons.forEach((btn, idx) => {
+            if (idx === index) {
+                btn.setAttribute('aria-current', 'step');
+            } else {
+                btn.removeAttribute('aria-current');
+            }
+        });
         currentIndex = index;
         progressIndicator.textContent = 'Question ' + (index + 1) + ' of ' + panels.length;
+        const activeLegend = panels[index].querySelector('legend');
+        if (activeLegend) activeLegend.focus();
     }
 
     function saveDraft() {
@@ -126,7 +143,10 @@
         btn.addEventListener('click', () => showPanel(Math.max(currentIndex - 1, 0)));
     });
     document.querySelectorAll('.btn-mark-review').forEach((btn, idx) => {
-        btn.addEventListener('click', () => navButtons[idx].classList.toggle('review'));
+        btn.addEventListener('click', () => {
+            const pressed = navButtons[idx].classList.toggle('review');
+            btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        });
     });
 
     form.addEventListener('submit', function () {
@@ -135,13 +155,22 @@
 
     restoreDraft();
     showPanel(0);
+    // showPanel(0) moves focus to the first legend on load; that's undesirable on initial
+    // page load (focus should stay at the top), so reset it back to the document body.
+    document.activeElement.blur();
 
-    // Countdown timer
+    // Countdown timer. The visible clock ticks every second (aria-hidden, since a
+    // per-second screen-reader announcement would be unusable); a separate sr-only
+    // live region only announces at meaningful milestones.
     let remaining = {{ remaining_seconds }};
     const timerEl = document.getElementById('timer');
+    const announcer = document.getElementById('timer-announcer');
+    const announceAtSeconds = new Set([300, 120, 60, 30, 10]);
+
     function tick() {
         if (remaining <= 0) {
             timerEl.textContent = '00:00';
+            announcer.textContent = "Time's up. Submitting your answers now.";
             form.submit();
             return;
         }
@@ -149,6 +178,11 @@
         const seconds = remaining % 60;
         timerEl.textContent = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
         if (remaining <= 60) timerEl.classList.add('text-danger');
+        if (announceAtSeconds.has(remaining)) {
+            announcer.textContent = remaining >= 60
+                ? Math.round(remaining / 60) + ' minutes remaining'
+                : remaining + ' seconds remaining';
+        }
         remaining -= 1;
         setTimeout(tick, 1000);
     }

@@ -1,6 +1,5 @@
 import csv
 import random
-from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -8,12 +7,12 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db.models import Avg, Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 from django.views.generic import DetailView, FormView, ListView
 
 from .forms import QuestionImportForm
 from .imports import commit_questions, parse_questions_csv
-from .models import Attempt, AttemptAnswer, Category, Choice, Question, Quiz
+from .models import Attempt, AttemptAnswer, Category, Question, Quiz
+from .services import grade_and_complete, ordered_questions, time_remaining_seconds
 
 
 class CatalogView(ListView):
@@ -66,11 +65,6 @@ class QuizDetailView(DetailView):
         return context
 
 
-def _ordered_questions(quiz, question_order):
-    questions_by_id = {q.id: q for q in quiz.questions.prefetch_related('choices').all()}
-    return [questions_by_id[qid] for qid in question_order if qid in questions_by_id]
-
-
 @login_required
 def start_quiz(request, pk):
     quiz = get_object_or_404(Quiz, pk=pk, is_active=True)
@@ -93,11 +87,6 @@ def start_quiz(request, pk):
     return redirect('quizzes:take', pk=attempt.pk)
 
 
-def _time_remaining_seconds(attempt):
-    deadline = attempt.start_time + timedelta(minutes=attempt.quiz.time_limit_minutes)
-    return (deadline - timezone.now()).total_seconds()
-
-
 @login_required
 def take_quiz(request, pk):
     attempt = get_object_or_404(Attempt, pk=pk, user=request.user)
@@ -105,13 +94,13 @@ def take_quiz(request, pk):
     if attempt.status != Attempt.Status.IN_PROGRESS:
         return redirect('quizzes:result', pk=attempt.pk)
 
-    remaining = _time_remaining_seconds(attempt)
+    remaining = time_remaining_seconds(attempt)
     if remaining <= 0 and request.method == 'GET':
-        _grade_and_complete(attempt, {}, timed_out=True)
+        grade_and_complete(attempt, {}, timed_out=True)
         return redirect('quizzes:result', pk=attempt.pk)
 
     quiz = attempt.quiz
-    questions = _ordered_questions(quiz, attempt.question_order)
+    questions = ordered_questions(quiz, attempt.question_order)
 
     if quiz.shuffle_choices:
         for question in questions:
@@ -121,8 +110,8 @@ def take_quiz(request, pk):
             question.display_choices = list(question.choices.all())
 
     if request.method == 'POST':
-        timed_out = _time_remaining_seconds(attempt) <= 0
-        _grade_and_complete(attempt, request.POST, timed_out=timed_out)
+        timed_out = time_remaining_seconds(attempt) <= 0
+        grade_and_complete(attempt, request.POST, timed_out=timed_out)
         return redirect('quizzes:result', pk=attempt.pk)
 
     context = {
@@ -132,32 +121,6 @@ def take_quiz(request, pk):
         'remaining_seconds': max(int(remaining), 0),
     }
     return render(request, 'quizzes/take.html', context)
-
-
-def _grade_and_complete(attempt, post_data, timed_out=False):
-    quiz = attempt.quiz
-    questions = _ordered_questions(quiz, attempt.question_order)
-    correct_count = 0
-
-    for question in questions:
-        field_name = f'question_{question.id}'
-        selected_ids = {int(v) for v in post_data.getlist(field_name)} if hasattr(post_data, 'getlist') else set()
-        correct_ids = set(question.choices.filter(is_correct=True).values_list('id', flat=True))
-        is_correct = bool(selected_ids) and selected_ids == correct_ids
-
-        answer, _ = AttemptAnswer.objects.update_or_create(
-            attempt=attempt, question=question, defaults={'is_correct': is_correct}
-        )
-        answer.selected_choices.set(Choice.objects.filter(id__in=selected_ids))
-        if is_correct:
-            correct_count += 1
-
-    total = len(questions) or 1
-    attempt.correct_count = correct_count
-    attempt.score_percent = round((correct_count / total) * 100, 2)
-    attempt.status = Attempt.Status.TIMED_OUT if timed_out else Attempt.Status.COMPLETED
-    attempt.end_time = timezone.now()
-    attempt.save()
 
 
 class ResultView(LoginRequiredMixin, DetailView):
@@ -171,7 +134,7 @@ class ResultView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         attempt = self.object
-        questions = _ordered_questions(attempt.quiz, attempt.question_order)
+        questions = ordered_questions(attempt.quiz, attempt.question_order)
         answers_by_question = {a.question_id: a for a in attempt.answers.prefetch_related('selected_choices')}
 
         review = []

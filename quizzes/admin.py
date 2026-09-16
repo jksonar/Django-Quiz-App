@@ -19,6 +19,7 @@ class QuestionAdmin(admin.ModelAdmin):
     list_display = ('text', 'category', 'question_type', 'difficulty', 'created_by')
     list_filter = ('category', 'question_type', 'difficulty')
     search_fields = ('text',)
+    exclude = ('created_by',)
     inlines = [ChoiceInline]
 
     def save_model(self, request, obj, form, change):
@@ -41,7 +42,7 @@ class QuizAdmin(admin.ModelAdmin):
     list_filter = ('category', 'difficulty', 'is_active')
     search_fields = ('title',)
     inlines = [QuizQuestionInline]
-    exclude = ('questions',)
+    exclude = ('questions', 'created_by')
 
     def save_model(self, request, obj, form, change):
         if not obj.pk and not obj.created_by_id:

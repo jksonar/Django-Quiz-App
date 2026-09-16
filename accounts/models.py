@@ -8,6 +8,7 @@ class User(AbstractUser):
         INSTRUCTOR = 'instructor', 'Instructor'
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
+    email_verified = models.BooleanField(default=False)
 
     @property
     def is_instructor(self):

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
 
@@ -31,10 +32,19 @@ class Question(models.Model):
     question_type = models.CharField(max_length=20, choices=Type.choices, default=Type.SINGLE)
     difficulty = models.CharField(max_length=20, choices=Difficulty.choices, default=Difficulty.MEDIUM)
     explanation = models.TextField(blank=True, help_text='Shown to students after they answer.')
+    image = models.ImageField(upload_to='questions/', blank=True, null=True)
+    image_alt_text = models.CharField(
+        max_length=255, blank=True, help_text='Describes the image for screen readers. Required if an image is set.'
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='questions_created'
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        super().clean()
+        if self.image and not self.image_alt_text:
+            raise ValidationError({'image_alt_text': 'Alt text is required when an image is attached.'})
 
     def __str__(self):
         return self.text[:60]
@@ -113,6 +123,7 @@ class Attempt(models.Model):
     score_percent = models.FloatField(null=True, blank=True)
     correct_count = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
+    reminder_sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-start_time']

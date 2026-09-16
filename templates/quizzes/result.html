@@ -26,7 +26,17 @@
 {% for item in review %}
 <div class="card mb-3 {% if item.is_correct %}border-success{% else %}border-danger{% endif %}">
     <div class="card-body">
-        <h6>Question {{ forloop.counter }}. {{ item.question.text }}</h6>
+        <h6 class="d-flex justify-content-between align-items-start">
+            <span>Question {{ forloop.counter }}. {{ item.question.text }}</span>
+            {% if item.is_correct %}
+            <span class="badge bg-success ms-2">Correct</span>
+            {% else %}
+            <span class="badge bg-danger ms-2">Incorrect</span>
+            {% endif %}
+        </h6>
+        {% if item.question.image %}
+        <img src="{{ item.question.image.url }}" alt="{{ item.question.image_alt_text|default:item.question.text }}" class="img-fluid mb-2">
+        {% endif %}
         <ul class="list-group list-group-flush mb-2">
             {% for choice in item.choices %}
             <li class="list-group-item d-flex justify-content-between align-items-center
