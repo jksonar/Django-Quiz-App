@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}{{ quiz.title }}{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <h1 class="card-title">{{ quiz.title }}</h1>
+        <h6 class="card-subtitle mb-3 text-muted">{{ quiz.category.name }} &middot; {{ quiz.get_difficulty_display }}</h6>
+        <p>{{ quiz.description }}</p>
+        <ul class="list-group list-group-flush mb-3">
+            <li class="list-group-item">Questions: {{ quiz.question_count }}</li>
+            <li class="list-group-item">Time limit: {{ quiz.time_limit_minutes }} minutes</li>
+            <li class="list-group-item">Passing score: {{ quiz.pass_score_percent }}%</li>
+            <li class="list-group-item">Questions shuffled: {{ quiz.shuffle_questions|yesno:"Yes,No" }}</li>
+        </ul>
+
+        {% if user.is_authenticated %}
+            <form method="post" action="{% url 'quizzes:start' quiz.pk %}">
+                {% csrf_token %}
+                {% if active_attempt %}
+                    <button type="submit" class="btn btn-warning">Resume Quiz</button>
+                {% else %}
+                    <button type="submit" class="btn btn-success">Start Quiz</button>
+                {% endif %}
+            </form>
+        {% else %}
+            <a href="{% url 'accounts:login' %}?next={% url 'quizzes:detail' quiz.pk %}" class="btn btn-primary">Login to start</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

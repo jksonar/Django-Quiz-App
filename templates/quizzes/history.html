@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}My Dashboard{% endblock %}
+{% block content %}
+<h1 class="mb-4">My Dashboard</h1>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Quizzes Completed</h6>
+                <p class="fs-3 mb-0">{{ attempts|length }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Average Score</h6>
+                <p class="fs-3 mb-0">{% if average_score is not None %}{{ average_score }}%{% else %}&mdash;{% endif %}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<table class="table table-bordered bg-white">
+    <thead>
+        <tr>
+            <th>Quiz</th>
+            <th>Category</th>
+            <th>Score</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for attempt in attempts %}
+        <tr>
+            <td>{{ attempt.quiz.title }}</td>
+            <td>{{ attempt.quiz.category.name }}</td>
+            <td>{{ attempt.score_percent }}%</td>
+            <td>
+                {% if attempt.passed %}
+                <span class="badge bg-success">Passed</span>
+                {% else %}
+                <span class="badge bg-danger">Not passed</span>
+                {% endif %}
+            </td>
+            <td>{{ attempt.start_time|date:"M d, Y H:i" }}</td>
+            <td><a href="{% url 'quizzes:result' attempt.pk %}" class="btn btn-sm btn-outline-primary">Review</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted">No completed quizzes yet.</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

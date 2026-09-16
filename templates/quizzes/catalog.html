@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}Browse Quizzes{% endblock %}
+{% block content %}
+<h1 class="mb-4">Browse Quizzes</h1>
+
+<form method="get" class="row g-2 mb-4">
+    <div class="col-md-3">
+        <select name="category" class="form-select" onchange="this.form.submit()">
+            <option value="">All categories</option>
+            {% for category in categories %}
+            <option value="{{ category.id }}" {% if selected_category == category.id|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <select name="difficulty" class="form-select" onchange="this.form.submit()">
+            <option value="">All difficulties</option>
+            {% for value, label in difficulties %}
+            <option value="{{ value }}" {% if selected_difficulty == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-3">
+        <select name="duration" class="form-select" onchange="this.form.submit()">
+            <option value="">Any duration</option>
+            <option value="short" {% if selected_duration == 'short' %}selected{% endif %}>Short (&le;10 min)</option>
+            <option value="medium" {% if selected_duration == 'medium' %}selected{% endif %}>Medium (11-30 min)</option>
+            <option value="long" {% if selected_duration == 'long' %}selected{% endif %}>Long (30+ min)</option>
+        </select>
+    </div>
+    <div class="col-md-3">
+        <a href="{% url 'quizzes:catalog' %}" class="btn btn-outline-secondary w-100">Clear filters</a>
+    </div>
+</form>
+
+<div class="row row-cols-1 row-cols-md-3 g-4">
+    {% for quiz in quizzes %}
+    <div class="col">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body">
+                <h5 class="card-title">{{ quiz.title }}</h5>
+                <h6 class="card-subtitle mb-2 text-muted">{{ quiz.category.name }} &middot; {{ quiz.get_difficulty_display }}</h6>
+                <p class="card-text">{{ quiz.description|truncatewords:20 }}</p>
+                <p class="card-text"><small class="text-muted">{{ quiz.question_count }} questions &middot; {{ quiz.time_limit_minutes }} min</small></p>
+            </div>
+            <div class="card-footer bg-white border-0">
+                <a href="{% url 'quizzes:detail' quiz.pk %}" class="btn btn-primary w-100">View Quiz</a>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <p class="text-muted">No quizzes match your filters yet.</p>
+    {% endfor %}
+</div>
+
+{% if is_paginated %}
+<nav class="mt-4">
+    <ul class="pagination">
+        {% if page_obj.has_previous %}
+        <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Previous</a></li>
+        {% endif %}
+        <li class="page-item disabled"><span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span></li>
+        {% if page_obj.has_next %}
+        <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Next</a></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

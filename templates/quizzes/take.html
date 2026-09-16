@@ -1,0 +1,158 @@
+{% extends 'base.html' %}
+{% block title %}{{ quiz.title }} - In Progress{% endblock %}
+{% block extra_head %}
+<style>
+    .question-panel { display: none; }
+    .question-panel.active { display: block; }
+    .qnav-btn.answered { background-color: #198754; color: #fff; border-color: #198754; }
+    .qnav-btn.review { background-color: #ffc107; border-color: #ffc107; }
+    #timer.text-danger { font-weight: bold; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center bg-white p-3 rounded shadow-sm mb-3 sticky-top">
+    <div>
+        <strong>{{ quiz.title }}</strong>
+        <div class="text-muted" id="progress-indicator">Question 1 of {{ questions|length }}</div>
+    </div>
+    <div class="text-end">
+        <div>Time remaining</div>
+        <div id="timer" class="fs-4">--:--</div>
+    </div>
+</div>
+
+<form method="post" id="quiz-form" action="{% url 'quizzes:take' attempt.pk %}">
+    {% csrf_token %}
+
+    <div class="mb-3 d-flex flex-wrap gap-1" id="question-nav">
+        {% for question in questions %}
+        <button type="button" class="btn btn-outline-secondary btn-sm qnav-btn" data-index="{{ forloop.counter0 }}">{{ forloop.counter }}</button>
+        {% endfor %}
+    </div>
+
+    {% for question in questions %}
+    <div class="question-panel card mb-3 {% if forloop.first %}active{% endif %}" data-index="{{ forloop.counter0 }}">
+        <div class="card-body">
+            <h5 class="card-title">Question {{ forloop.counter }}. {{ question.text }}</h5>
+            <p class="text-muted small">{{ question.get_question_type_display }}</p>
+            {% for choice in question.display_choices %}
+            <div class="form-check">
+                {% if question.question_type == 'multi' %}
+                <input class="form-check-input answer-input" type="checkbox" name="question_{{ question.id }}" value="{{ choice.id }}" id="choice-{{ choice.id }}">
+                {% else %}
+                <input class="form-check-input answer-input" type="radio" name="question_{{ question.id }}" value="{{ choice.id }}" id="choice-{{ choice.id }}">
+                {% endif %}
+                <label class="form-check-label" for="choice-{{ choice.id }}">{{ choice.text }}</label>
+            </div>
+            {% endfor %}
+
+            <div class="mt-3 d-flex justify-content-between">
+                <button type="button" class="btn btn-outline-secondary btn-prev">Previous</button>
+                <button type="button" class="btn btn-outline-warning btn-mark-review">Mark for review</button>
+                <button type="button" class="btn btn-outline-secondary btn-next">Next</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="d-grid">
+        <button type="submit" class="btn btn-success btn-lg" id="submit-btn">Submit Quiz</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    const attemptId = '{{ attempt.pk }}';
+    const storageKey = 'quiz_attempt_' + attemptId;
+    const panels = Array.from(document.querySelectorAll('.question-panel'));
+    const navButtons = Array.from(document.querySelectorAll('.qnav-btn'));
+    const form = document.getElementById('quiz-form');
+    const progressIndicator = document.getElementById('progress-indicator');
+    let currentIndex = 0;
+
+    function showPanel(index) {
+        panels.forEach(p => p.classList.toggle('active', Number(p.dataset.index) === index));
+        currentIndex = index;
+        progressIndicator.textContent = 'Question ' + (index + 1) + ' of ' + panels.length;
+    }
+
+    function saveDraft() {
+        const data = {};
+        form.querySelectorAll('.answer-input').forEach(input => {
+            if (input.checked) {
+                data[input.name] = data[input.name] || [];
+                data[input.name].push(input.value);
+            }
+        });
+        try { localStorage.setItem(storageKey, JSON.stringify(data)); } catch (e) {}
+    }
+
+    function restoreDraft() {
+        let data;
+        try { data = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch (e) { data = {}; }
+        Object.keys(data).forEach(name => {
+            data[name].forEach(value => {
+                const input = form.querySelector(`.answer-input[name="${name}"][value="${value}"]`);
+                if (input) input.checked = true;
+            });
+        });
+        updateNavState();
+    }
+
+    function updateNavState() {
+        panels.forEach((panel, idx) => {
+            const answered = Array.from(panel.querySelectorAll('.answer-input')).some(i => i.checked);
+            navButtons[idx].classList.toggle('answered', answered);
+        });
+    }
+
+    form.addEventListener('change', function (e) {
+        if (e.target.classList.contains('answer-input')) {
+            saveDraft();
+            updateNavState();
+        }
+    });
+
+    navButtons.forEach(btn => {
+        btn.addEventListener('click', () => showPanel(Number(btn.dataset.index)));
+    });
+
+    document.querySelectorAll('.btn-next').forEach(btn => {
+        btn.addEventListener('click', () => showPanel(Math.min(currentIndex + 1, panels.length - 1)));
+    });
+    document.querySelectorAll('.btn-prev').forEach(btn => {
+        btn.addEventListener('click', () => showPanel(Math.max(currentIndex - 1, 0)));
+    });
+    document.querySelectorAll('.btn-mark-review').forEach((btn, idx) => {
+        btn.addEventListener('click', () => navButtons[idx].classList.toggle('review'));
+    });
+
+    form.addEventListener('submit', function () {
+        try { localStorage.removeItem(storageKey); } catch (e) {}
+    });
+
+    restoreDraft();
+    showPanel(0);
+
+    // Countdown timer
+    let remaining = {{ remaining_seconds }};
+    const timerEl = document.getElementById('timer');
+    function tick() {
+        if (remaining <= 0) {
+            timerEl.textContent = '00:00';
+            form.submit();
+            return;
+        }
+        const minutes = Math.floor(remaining / 60);
+        const seconds = remaining % 60;
+        timerEl.textContent = String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        if (remaining <= 60) timerEl.classList.add('text-danger');
+        remaining -= 1;
+        setTimeout(tick, 1000);
+    }
+    tick();
+})();
+</script>
+{% endblock %}

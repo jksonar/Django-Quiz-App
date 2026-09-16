@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}Results - {{ attempt.quiz.title }}{% endblock %}
+{% block content %}
+<div class="card mb-4">
+    <div class="card-body text-center">
+        <h1>{{ attempt.quiz.title }}</h1>
+        <p class="display-4 {% if attempt.passed %}text-success{% else %}text-danger{% endif %}">{{ attempt.score_percent }}%</p>
+        <p class="fs-5">
+            {{ attempt.correct_count }} / {{ attempt.answers.count }} correct
+            &middot;
+            {% if attempt.passed %}
+                <span class="badge bg-success">Passed</span>
+            {% else %}
+                <span class="badge bg-danger">Not passed</span>
+            {% endif %}
+            {% if attempt.status == 'timed_out' %}
+                <span class="badge bg-warning text-dark">Auto-submitted (time expired)</span>
+            {% endif %}
+        </p>
+        <a href="{% url 'quizzes:detail' attempt.quiz.pk %}" class="btn btn-outline-primary">Retake Quiz</a>
+        <a href="{% url 'quizzes:history' %}" class="btn btn-outline-secondary">My Dashboard</a>
+    </div>
+</div>
+
+<h3 class="mb-3">Review</h3>
+{% for item in review %}
+<div class="card mb-3 {% if item.is_correct %}border-success{% else %}border-danger{% endif %}">
+    <div class="card-body">
+        <h6>Question {{ forloop.counter }}. {{ item.question.text }}</h6>
+        <ul class="list-group list-group-flush mb-2">
+            {% for choice in item.choices %}
+            <li class="list-group-item d-flex justify-content-between align-items-center
+                {% if choice.is_correct %}list-group-item-success{% elif choice.id in item.selected_ids %}list-group-item-danger{% endif %}">
+                {{ choice.text }}
+                <span>
+                    {% if choice.id in item.selected_ids %}<span class="badge bg-secondary">Your answer</span>{% endif %}
+                    {% if choice.is_correct %}<span class="badge bg-success">Correct</span>{% endif %}
+                </span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% if item.question.explanation %}
+        <p class="text-muted mb-0"><strong>Explanation:</strong> {{ item.question.explanation }}</p>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
