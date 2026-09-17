@@ -1,15 +1,24 @@
+import csv
 import random
-from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.db.models import Avg, Count, Max, Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
-from django.utils import timezone
-from django.views.generic import DetailView, ListView
+from django.views.generic import DetailView, FormView, ListView
 
-from .models import Attempt, AttemptAnswer, Category, Choice, Question, Quiz
+from .forms import QuestionImportForm
+from .imports import commit_questions, parse_questions_csv
+from .models import Attempt, AttemptAnswer, Category, Question, Quiz
+from .services import (
+    grade_and_complete,
+    ordered_questions,
+    select_adaptive_questions,
+    select_fixed_questions,
+    time_remaining_seconds,
+)
 
 
 class CatalogView(ListView):
@@ -59,12 +68,27 @@ class QuizDetailView(DetailView):
             context['active_attempt'] = Attempt.objects.filter(
                 user=self.request.user, quiz=self.object, status=Attempt.Status.IN_PROGRESS
             ).first()
+        context['leaderboard'] = (
+            self.object.attempts
+            .filter(status__in=[Attempt.Status.COMPLETED, Attempt.Status.TIMED_OUT])
+            .values('user__username')
+            .annotate(best_score=Max('score_percent'))
+            .order_by('-best_score')[:10]
+        )
         return context
 
 
-def _ordered_questions(quiz, question_order):
-    questions_by_id = {q.id: q for q in quiz.questions.prefetch_related('choices').all()}
-    return [questions_by_id[qid] for qid in question_order if qid in questions_by_id]
+class LeaderboardView(ListView):
+    template_name = 'quizzes/leaderboard.html'
+    context_object_name = 'leaders'
+
+    def get_queryset(self):
+        return (
+            Attempt.objects.filter(status__in=[Attempt.Status.COMPLETED, Attempt.Status.TIMED_OUT])
+            .values('user__username')
+            .annotate(quizzes_completed=Count('id'), average_score=Avg('score_percent'), best_score=Max('score_percent'))
+            .order_by('-average_score', '-quizzes_completed')[:25]
+        )
 
 
 @login_required
@@ -77,21 +101,17 @@ def start_quiz(request, pk):
     if existing:
         return redirect('quizzes:take', pk=existing.pk)
 
-    question_ids = list(quiz.questions.values_list('id', flat=True))
+    if quiz.selection_mode == Quiz.SelectionMode.ADAPTIVE:
+        question_ids = select_adaptive_questions(request.user, quiz)
+    else:
+        question_ids = select_fixed_questions(quiz)
+
     if not question_ids:
         messages.error(request, 'This quiz has no questions yet.')
         return redirect('quizzes:detail', pk=quiz.pk)
 
-    if quiz.shuffle_questions:
-        random.shuffle(question_ids)
-
     attempt = Attempt.objects.create(user=request.user, quiz=quiz, question_order=question_ids)
     return redirect('quizzes:take', pk=attempt.pk)
-
-
-def _time_remaining_seconds(attempt):
-    deadline = attempt.start_time + timedelta(minutes=attempt.quiz.time_limit_minutes)
-    return (deadline - timezone.now()).total_seconds()
 
 
 @login_required
@@ -101,13 +121,13 @@ def take_quiz(request, pk):
     if attempt.status != Attempt.Status.IN_PROGRESS:
         return redirect('quizzes:result', pk=attempt.pk)
 
-    remaining = _time_remaining_seconds(attempt)
+    remaining = time_remaining_seconds(attempt)
     if remaining <= 0 and request.method == 'GET':
-        _grade_and_complete(attempt, {}, timed_out=True)
+        grade_and_complete(attempt, {}, timed_out=True)
         return redirect('quizzes:result', pk=attempt.pk)
 
     quiz = attempt.quiz
-    questions = _ordered_questions(quiz, attempt.question_order)
+    questions = ordered_questions(attempt.question_order)
 
     if quiz.shuffle_choices:
         for question in questions:
@@ -117,8 +137,8 @@ def take_quiz(request, pk):
             question.display_choices = list(question.choices.all())
 
     if request.method == 'POST':
-        timed_out = _time_remaining_seconds(attempt) <= 0
-        _grade_and_complete(attempt, request.POST, timed_out=timed_out)
+        timed_out = time_remaining_seconds(attempt) <= 0
+        grade_and_complete(attempt, request.POST, timed_out=timed_out)
         return redirect('quizzes:result', pk=attempt.pk)
 
     context = {
@@ -128,32 +148,6 @@ def take_quiz(request, pk):
         'remaining_seconds': max(int(remaining), 0),
     }
     return render(request, 'quizzes/take.html', context)
-
-
-def _grade_and_complete(attempt, post_data, timed_out=False):
-    quiz = attempt.quiz
-    questions = _ordered_questions(quiz, attempt.question_order)
-    correct_count = 0
-
-    for question in questions:
-        field_name = f'question_{question.id}'
-        selected_ids = {int(v) for v in post_data.getlist(field_name)} if hasattr(post_data, 'getlist') else set()
-        correct_ids = set(question.choices.filter(is_correct=True).values_list('id', flat=True))
-        is_correct = bool(selected_ids) and selected_ids == correct_ids
-
-        answer, _ = AttemptAnswer.objects.update_or_create(
-            attempt=attempt, question=question, defaults={'is_correct': is_correct}
-        )
-        answer.selected_choices.set(Choice.objects.filter(id__in=selected_ids))
-        if is_correct:
-            correct_count += 1
-
-    total = len(questions) or 1
-    attempt.correct_count = correct_count
-    attempt.score_percent = round((correct_count / total) * 100, 2)
-    attempt.status = Attempt.Status.TIMED_OUT if timed_out else Attempt.Status.COMPLETED
-    attempt.end_time = timezone.now()
-    attempt.save()
 
 
 class ResultView(LoginRequiredMixin, DetailView):
@@ -167,7 +161,7 @@ class ResultView(LoginRequiredMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         attempt = self.object
-        questions = _ordered_questions(attempt.quiz, attempt.question_order)
+        questions = ordered_questions(attempt.question_order)
         answers_by_question = {a.question_id: a for a in attempt.answers.prefetch_related('selected_choices')}
 
         review = []
@@ -202,4 +196,145 @@ class HistoryView(LoginRequiredMixin, ListView):
             context['average_score'] = round(sum(a.score_percent or 0 for a in attempts) / len(attempts), 2)
         else:
             context['average_score'] = None
+
+        trend = list(reversed(attempts))
+        context['trend_labels'] = [a.start_time.strftime('%b %d') for a in trend]
+        context['trend_scores'] = [a.score_percent for a in trend]
+
+        weak_areas = (
+            self.get_queryset()
+            .values('quiz__category__name')
+            .annotate(avg_score=Avg('score_percent'), attempt_count=Count('id'))
+            .order_by('avg_score')
+        )
+        context['weak_areas'] = list(weak_areas)
         return context
+
+
+class InstructorRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.is_authenticated and self.request.user.is_instructor
+
+
+class ManageDashboardView(InstructorRequiredMixin, ListView):
+    model = Quiz
+    template_name = 'quizzes/manage/dashboard.html'
+    context_object_name = 'quizzes'
+
+    def get_queryset(self):
+        return Quiz.objects.select_related('category').annotate(
+            attempt_count=Count('attempts'),
+            finished_count=Count('attempts', filter=Q(attempts__status__in=[
+                Attempt.Status.COMPLETED, Attempt.Status.TIMED_OUT,
+            ])),
+            avg_score=Avg('attempts__score_percent'),
+        )
+
+
+class QuizAnalyticsView(InstructorRequiredMixin, DetailView):
+    model = Quiz
+    template_name = 'quizzes/manage/quiz_analytics.html'
+    context_object_name = 'quiz'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        quiz = self.object
+        all_attempts = quiz.attempts.all()
+        finished = all_attempts.filter(status__in=[Attempt.Status.COMPLETED, Attempt.Status.TIMED_OUT])
+
+        started_count = all_attempts.count()
+        finished_count = finished.count()
+        context['started_count'] = started_count
+        context['finished_count'] = finished_count
+        context['completion_rate'] = round(finished_count / started_count * 100, 1) if started_count else None
+        context['average_score'] = round(
+            finished.aggregate(avg=Avg('score_percent'))['avg'] or 0, 2
+        ) if finished_count else None
+        context['pass_count'] = finished.filter(score_percent__gte=quiz.pass_score_percent).count()
+
+        # Query questions actually answered in this quiz's attempts (rather than
+        # quiz.questions, which is empty for adaptive quizzes since those pull
+        # questions ad hoc from the category pool instead of a fixed set).
+        answered_questions = Question.objects.filter(
+            attempt_answers__attempt__in=finished
+        ).distinct().prefetch_related('choices')
+
+        question_stats = []
+        for question in answered_questions:
+            answers = AttemptAnswer.objects.filter(attempt__in=finished, question=question)
+            answered_count = answers.count()
+            missed_count = answers.filter(is_correct=False).count()
+            miss_rate = round(missed_count / answered_count * 100, 1) if answered_count else 0
+            question_stats.append({
+                'question': question,
+                'answered_count': answered_count,
+                'missed_count': missed_count,
+                'miss_rate': miss_rate,
+            })
+        question_stats.sort(key=lambda s: s['miss_rate'], reverse=True)
+        context['question_stats'] = question_stats
+        return context
+
+
+@login_required
+def export_quiz_csv(request, pk):
+    quiz = get_object_or_404(Quiz, pk=pk)
+    if not request.user.is_instructor:
+        messages.error(request, 'You do not have permission to export this data.')
+        return redirect('quizzes:catalog')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{quiz.title}-results.csv"'
+    writer = csv.writer(response)
+    writer.writerow(['username', 'email', 'score_percent', 'correct_count', 'total_questions', 'status', 'start_time', 'end_time'])
+    for attempt in quiz.attempts.select_related('user').all():
+        writer.writerow([
+            attempt.user.username,
+            attempt.user.email,
+            attempt.score_percent,
+            attempt.correct_count,
+            len(attempt.question_order),
+            attempt.status,
+            attempt.start_time.isoformat(),
+            attempt.end_time.isoformat() if attempt.end_time else '',
+        ])
+    return response
+
+
+class QuestionImportView(InstructorRequiredMixin, FormView):
+    template_name = 'quizzes/manage/import_questions.html'
+    form_class = QuestionImportForm
+
+    def get_success_url(self):
+        return self.request.path
+
+    def form_valid(self, form):
+        rows, errors = parse_questions_csv(form.cleaned_data['csv_file'])
+        if errors:
+            return self.render_to_response(self.get_context_data(form=form, errors=errors))
+        created = commit_questions(rows, created_by=self.request.user)
+        messages.success(self.request, f'Imported {len(created)} question(s) successfully.')
+        return redirect('quizzes:import_questions')
+
+
+@login_required
+def download_import_template(request):
+    if not request.user.is_instructor:
+        messages.error(request, 'You do not have permission to do that.')
+        return redirect('quizzes:catalog')
+
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="question_import_template.csv"'
+    writer = csv.writer(response)
+    writer.writerow(['category', 'question_text', 'question_type', 'difficulty', 'explanation', 'choices', 'correct_answers', 'tags'])
+    writer.writerow([
+        'General Science', 'What is the boiling point of water at sea level (Celsius)?',
+        'single', 'easy', 'Water boils at 100C at standard atmospheric pressure.',
+        '100|90|80|120', '100', 'chemistry|physics',
+    ])
+    writer.writerow([
+        'General Science', 'Which of these are noble gases?',
+        'multi', 'medium', 'Noble gases include helium, neon, and argon.',
+        'Helium|Neon|Nitrogen|Oxygen', 'Helium|Neon', 'chemistry',
+    ])
+    return response

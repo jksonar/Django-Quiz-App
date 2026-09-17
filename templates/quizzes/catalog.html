@@ -3,9 +3,10 @@
 {% block content %}
 <h1 class="mb-4">Browse Quizzes</h1>
 
-<form method="get" class="row g-2 mb-4">
+<form method="get" class="row g-2 mb-4" aria-label="Filter quizzes">
     <div class="col-md-3">
-        <select name="category" class="form-select" onchange="this.form.submit()">
+        <label for="filter-category" class="visually-hidden">Category</label>
+        <select id="filter-category" name="category" class="form-select">
             <option value="">All categories</option>
             {% for category in categories %}
             <option value="{{ category.id }}" {% if selected_category == category.id|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>
@@ -13,7 +14,8 @@
         </select>
     </div>
     <div class="col-md-3">
-        <select name="difficulty" class="form-select" onchange="this.form.submit()">
+        <label for="filter-difficulty" class="visually-hidden">Difficulty</label>
+        <select id="filter-difficulty" name="difficulty" class="form-select">
             <option value="">All difficulties</option>
             {% for value, label in difficulties %}
             <option value="{{ value }}" {% if selected_difficulty == value %}selected{% endif %}>{{ label }}</option>
@@ -21,15 +23,17 @@
         </select>
     </div>
     <div class="col-md-3">
-        <select name="duration" class="form-select" onchange="this.form.submit()">
+        <label for="filter-duration" class="visually-hidden">Duration</label>
+        <select id="filter-duration" name="duration" class="form-select">
             <option value="">Any duration</option>
             <option value="short" {% if selected_duration == 'short' %}selected{% endif %}>Short (&le;10 min)</option>
             <option value="medium" {% if selected_duration == 'medium' %}selected{% endif %}>Medium (11-30 min)</option>
             <option value="long" {% if selected_duration == 'long' %}selected{% endif %}>Long (30+ min)</option>
         </select>
     </div>
-    <div class="col-md-3">
-        <a href="{% url 'quizzes:catalog' %}" class="btn btn-outline-secondary w-100">Clear filters</a>
+    <div class="col-md-3 d-flex gap-2">
+        <button type="submit" class="btn btn-primary w-100">Apply Filters</button>
+        <a href="{% url 'quizzes:catalog' %}" class="btn btn-outline-secondary w-100">Clear</a>
     </div>
 </form>
 

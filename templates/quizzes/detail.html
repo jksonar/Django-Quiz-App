@@ -11,7 +11,25 @@
             <li class="list-group-item">Time limit: {{ quiz.time_limit_minutes }} minutes</li>
             <li class="list-group-item">Passing score: {{ quiz.pass_score_percent }}%</li>
             <li class="list-group-item">Questions shuffled: {{ quiz.shuffle_questions|yesno:"Yes,No" }}</li>
+            {% if quiz.selection_mode == 'adaptive' %}
+            <li class="list-group-item">
+                <span class="badge bg-info text-dark">Adaptive</span>
+                Questions are chosen for you each attempt, weighted toward the difficulty levels you've struggled with.
+            </li>
+            {% endif %}
         </ul>
+
+        {% if leaderboard %}
+        <h6 class="text-muted">Top Scores</h6>
+        <ol class="list-group list-group-numbered mb-3">
+            {% for entry in leaderboard %}
+            <li class="list-group-item d-flex justify-content-between">
+                <span>{{ entry.user__username }}</span>
+                <span>{{ entry.best_score|floatformat:1 }}%</span>
+            </li>
+            {% endfor %}
+        </ol>
+        {% endif %}
 
         {% if user.is_authenticated %}
             <form method="post" action="{% url 'quizzes:start' quiz.pk %}">

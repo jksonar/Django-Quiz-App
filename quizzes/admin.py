@@ -1,11 +1,18 @@
 from django.contrib import admin
 
-from .models import Attempt, AttemptAnswer, Category, Choice, Question, Quiz, QuizQuestion
+from .models import Attempt, AttemptAnswer, Category, Choice, Question, Quiz, QuizQuestion, Tag
 
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ('name',)
+    search_fields = ('name',)
+
+
+@admin.register(Tag)
+class TagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug')
+    prepopulated_fields = {'slug': ('name',)}
     search_fields = ('name',)
 
 
@@ -17,8 +24,10 @@ class ChoiceInline(admin.TabularInline):
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ('text', 'category', 'question_type', 'difficulty', 'created_by')
-    list_filter = ('category', 'question_type', 'difficulty')
+    list_filter = ('category', 'question_type', 'difficulty', 'tags')
     search_fields = ('text',)
+    exclude = ('created_by',)
+    filter_horizontal = ('tags',)
     inlines = [ChoiceInline]
 
     def save_model(self, request, obj, form, change):
@@ -36,12 +45,13 @@ class QuizQuestionInline(admin.TabularInline):
 @admin.register(Quiz)
 class QuizAdmin(admin.ModelAdmin):
     list_display = (
-        'title', 'category', 'difficulty', 'question_count', 'time_limit_minutes', 'pass_score_percent', 'is_active'
+        'title', 'category', 'difficulty', 'selection_mode', 'question_count', 'time_limit_minutes',
+        'pass_score_percent', 'is_active',
     )
-    list_filter = ('category', 'difficulty', 'is_active')
+    list_filter = ('category', 'difficulty', 'selection_mode', 'is_active')
     search_fields = ('title',)
     inlines = [QuizQuestionInline]
-    exclude = ('questions',)
+    exclude = ('questions', 'created_by')
 
     def save_model(self, request, obj, form, change):
         if not obj.pk and not obj.created_by_id:
