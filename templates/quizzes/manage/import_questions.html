@@ -8,8 +8,10 @@
     <div class="card-body">
         <h6 class="card-title">CSV Format</h6>
         <p class="text-muted mb-2">
-            Columns: <code>category, question_text, question_type, difficulty, explanation, choices, correct_answers</code>.
-            Separate multiple choices/correct answers with a pipe <code>|</code>. The category must already exist.
+            Columns: <code>category, question_text, question_type, difficulty, explanation, choices, correct_answers, tags</code>
+            (<code>tags</code> is optional).
+            Separate multiple choices/correct answers/tags with a pipe <code>|</code>. The category must already exist;
+            tags are created automatically if they don't exist yet.
             <code>question_type</code> is one of <code>single</code>, <code>multi</code>, <code>true_false</code>.
         </p>
         <a href="{% url 'quizzes:import_template' %}" class="btn btn-sm btn-outline-secondary">Download CSV Template</a>

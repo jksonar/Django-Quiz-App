@@ -33,6 +33,7 @@
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav me-auto">
                 <li class="nav-item"><a class="nav-link" href="{% url 'quizzes:catalog' %}">Browse Quizzes</a></li>
+                <li class="nav-item"><a class="nav-link" href="{% url 'quizzes:leaderboard' %}">Leaderboard</a></li>
                 {% if user.is_authenticated %}
                 <li class="nav-item"><a class="nav-link" href="{% url 'quizzes:history' %}">My Dashboard</a></li>
                 {% endif %}

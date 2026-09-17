@@ -2,8 +2,9 @@ import csv
 import io
 
 from django.db import transaction
+from django.utils.text import slugify
 
-from .models import Category, Choice, Question
+from .models import Category, Choice, Question, Tag
 
 REQUIRED_COLUMNS = {'category', 'question_text', 'question_type', 'choices', 'correct_answers'}
 VALID_TYPES = {choice[0] for choice in Question.Type.choices}
@@ -80,6 +81,8 @@ def parse_questions_csv(uploaded_file):
             errors.append(f"Row {line_num}: {'; '.join(row_errors)}")
             continue
 
+        tag_names = [t.strip() for t in row.get('tags', '').split('|') if t.strip()]
+
         rows.append({
             'category': category,
             'text': text_value,
@@ -87,6 +90,7 @@ def parse_questions_csv(uploaded_file):
             'difficulty': difficulty,
             'explanation': row.get('explanation', ''),
             'choices': [(c, c in correct_texts) for c in choice_texts],
+            'tags': tag_names,
         })
 
     if not rows and not errors:
@@ -111,5 +115,11 @@ def commit_questions(rows, created_by):
             Choice(question=question, text=choice_text, is_correct=is_correct)
             for choice_text, is_correct in row['choices']
         ])
+        if row['tags']:
+            tags = []
+            for name in row['tags']:
+                tag, _ = Tag.objects.get_or_create(name=name, defaults={'slug': slugify(name)})
+                tags.append(tag)
+            question.tags.set(tags)
         created.append(question)
     return created

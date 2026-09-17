@@ -7,6 +7,7 @@ app_name = 'quizzes'
 urlpatterns = [
     path('', views.CatalogView.as_view(), name='catalog'),
     path('dashboard/', views.HistoryView.as_view(), name='history'),
+    path('leaderboard/', views.LeaderboardView.as_view(), name='leaderboard'),
     path('manage/', views.ManageDashboardView.as_view(), name='manage_dashboard'),
     path('manage/quiz/<int:pk>/analytics/', views.QuizAnalyticsView.as_view(), name='quiz_analytics'),
     path('manage/quiz/<int:pk>/export/', views.export_quiz_csv, name='export_quiz_csv'),
